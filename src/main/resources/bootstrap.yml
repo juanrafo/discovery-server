@@ -1,0 +1,14 @@
+server:
+  port: ${CUSTOM.SERVER.PORT:8762}
+
+eureka:
+  instance:
+    hostname: ${CUSTOM.SERVER.HOSTNAME:host.docker.internal}
+    prefer-ip-address: true
+  client:
+    fetch-registry: false
+    register-with-eureka: false
+    service-url:
+      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka
+  datacenter: 'Mitocode'
+  environment: Dev
