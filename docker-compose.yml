@@ -5,6 +5,11 @@ services:
     image: alpine/java:21-jdk
     container_name: discovery-server
     restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
     ports:
       - "8761:8761"
     volumes:
