@@ -1,17 +1,186 @@
 version: '3.8'
 
 services:
-  discovery-server:
-    image: alpine/java:21-jdk
-    container_name: discovery-server
-    restart: always
+  mongo-service:
+    image: mongo
+    #restart: always
+    container_name: mitocode-mongo-service
     deploy:
       resources:
         limits:
           memory: 512M
           cpus: '1.0'
     ports:
-      - "8761:8761"
+      - 27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mitocode
+      MONGO_INITDB_ROOT_PASSWORD: mitocode
+    networks:
+      - mitocode
+
+  mongo-express:
+    image: mongo-express
+    #restart: always
+    container_name: mitocode-mongo-express-service
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    depends_on:
+      - mongo-service
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: mitocode
+      ME_CONFIG_MONGODB_ADMINPASSWORD: mitocode
+      ME_CONFIG_MONGODB_URL: mongodb://mitocode:mitocode@mongo-service:27017
+    networks:
+      - mitocode
+
+  prometheus:
+    image: prom/prometheus
+    #restart: always
+    #   network_mode: host
+    container_name: mitocode-prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    ports:
+      - 9097:9097 #192.168.65.0
     volumes:
-      - ./target/discovery-server-0.0.1-SNAPSHOT.jar:/app/discovery-server-v1.jar
-    command: ["java", "-jar", "/app/discovery-server-v1.jar"]
+      - ./prometheus/config/:/etc/prometheus/
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    networks:
+      - mitocode
+
+  grafana:
+    image: grafana/grafana-oss
+    container_name: mitocode-grafana
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    ports:
+      - 3000:3000
+    volumes:
+      - ./grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_DOMAIN=localhost
+    networks:
+      - mitocode
+
+
+  loki:
+    image: grafana/loki
+    ports:
+      - 3100:3100
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    container_name: mitocode-loki
+    networks:
+      - mitocode
+
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper
+    container_name: mitocode-kafka-zookeeper
+    ports:
+      - 2181:2181
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - mitocode
+
+
+  broker:
+    image: confluentinc/cp-kafka:6.2.1
+    container_name: mitocode-kafka-broker
+    ports:
+      - 9092:9092
+      - 29092:29092
+    depends_on:
+      - zookeeper
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://broker:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_REPLICATION_FACTOR: 1
+    networks:
+      - mitocode
+
+
+  discovery-server:
+    build: .
+    container_name: mitocode-discovery-server
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8761/ || exit 1"]
+      interval: 10s
+      timeout: 200s
+      retries: 10
+      start_period: 10s
+    ports:
+      - 8761:8761
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    environment:
+      CUSTOM.SERVER.PORT: 8761
+      eureka.instance.hostname: discovery-server
+      server.port: 8761
+    networks:
+      - mitocode
+
+
+  config-server:
+    build: ../config-server/
+    container_name: mitocode-config-server
+    healthcheck:
+      test: [ "CMD", "curl" , "http://localhost:9000/product-service/dev" ]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+          cpus: '1.0'
+    ports:
+      - 9000:9000
+    environment:
+      CUSTOM.SERVER.PORT: 9000
+      EUREKA.SERVER.HOSTNAME: http://discovery-server:8761/eureka #9002
+    networks:
+      - mitocode
+
+networks:
+  mitocode:
+    name: mitocode-network

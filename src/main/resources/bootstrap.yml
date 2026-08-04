@@ -8,6 +8,8 @@ eureka:
   client:
     fetch-registry: false
     register-with-eureka: false
+    healthcheck:
+      enable: true
     service-url:
       defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka
   datacenter: 'Mitocode'
